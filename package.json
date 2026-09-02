@@ -1,0 +1,50 @@
+{
+  "name": "super-web",
+  "version": "1.0.0",
+  "description": "Central shell application for Super Web micro frontend ecosystem",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/shell",
+    "packages/feature-profile",
+    "packages/feature-portfolio",
+    "packages/feature-blog"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "build:lib": "npm run build --workspace packages/shell",
+    "test": "npm run test --workspaces --if-present",
+    "test:ui": "npm run test:ui --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present && rm -rf node_modules",
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@babel/core": "^7.22.0",
+    "@babel/preset-env": "^7.22.0",
+    "@babel/preset-react": "^7.22.0",
+    "@babel/preset-typescript": "^7.22.0",
+    "babel-loader": "^9.1.0",
+    "typescript": "^5.1.0",
+    "webpack": "^5.89.0",
+    "webpack-cli": "^5.1.0",
+    "webpack-dev-server": "^4.15.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "keywords": [
+    "micro-frontend",
+    "module-federation",
+    "shell-application",
+    "react"
+  ],
+  "author": "Jelly",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jelly/super-web"
+  }
+}

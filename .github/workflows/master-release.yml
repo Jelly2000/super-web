@@ -1,0 +1,61 @@
+name: Master Release
+
+# Production build/deploy for the shell app. Runs on every push to master
+# (i.e. whenever a PR merges) and can also be triggered manually.
+# Deploys to the bucket root, leaving pr/* preview prefixes untouched.
+#
+# Required repo variables/secrets: same as pr-release.yml — see docs/deployment.md.
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch: {}
+
+concurrency:
+  group: master-release
+  cancel-in-progress: false
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  S3_BUCKET: ${{ vars.S3_BUCKET_NAME }}
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run type-check
+
+      - run: npm run test --workspace packages/shell
+
+      - run: npm run build --workspace packages/shell
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync build to S3 (production)
+        run: |
+          aws s3 sync packages/shell/dist "s3://${S3_BUCKET}" \
+            --delete \
+            --exclude "pr/*"
+
+      - name: Invalidate CloudFront cache
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+            --paths "/*"

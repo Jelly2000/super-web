@@ -1,0 +1,97 @@
+name: PR Release
+
+# Builds the shell app and deploys it to a per-PR preview prefix in S3,
+# fronted by the same CloudFront distribution as production
+# (s3://$S3_BUCKET_NAME/pr/<number>/). Torn down by pr-closed.yml.
+#
+# Required repo variables (Settings > Secrets and variables > Actions > Variables):
+#   AWS_REGION, S3_BUCKET_NAME, CLOUDFRONT_DISTRIBUTION_ID, CLOUDFRONT_DOMAIN
+# Required repo secret:
+#   AWS_DEPLOY_ROLE_ARN — IAM role assumed via OIDC, trust-scoped to this repo
+# See docs/deployment.md for one-time AWS setup.
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, synchronize, reopened]
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+  pull-requests: write
+
+env:
+  AWS_REGION: ${{ vars.AWS_REGION }}
+  S3_BUCKET: ${{ vars.S3_BUCKET_NAME }}
+  CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+  CLOUDFRONT_DOMAIN: ${{ vars.CLOUDFRONT_DOMAIN }}
+  PR_PREFIX: pr/${{ github.event.pull_request.number }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - run: npm ci
+
+      - run: npm run type-check
+
+      - run: npm run test --workspace packages/shell
+
+      - run: npm run build --workspace packages/shell
+
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Sync build to S3 preview prefix
+        run: |
+          aws s3 sync packages/shell/dist "s3://${S3_BUCKET}/${PR_PREFIX}" --delete
+
+      - name: Invalidate CloudFront cache for this PR
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+            --paths "/${PR_PREFIX}/*"
+
+      - name: Comment preview URL on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const marker = '<!-- pr-preview-comment -->';
+            const url = `https://${process.env.CLOUDFRONT_DOMAIN}/${process.env.PR_PREFIX}/index.html`;
+            const body = `${marker}\n### Preview deployed\n\n${url}\n\n_Updated at ${new Date().toISOString()}_`;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+            const existing = comments.find((c) => c.body?.includes(marker));
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
