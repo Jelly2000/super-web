@@ -1,257 +1,83 @@
-# Micro Frontend Architecture
+# super-web Architecture
 
 ## Overview
 
-This project implements a **Module Federation** based micro frontend architecture that enables independent development, testing, and deployment of multiple frontend applications.
+`super-web` is a single Next.js (App Router) app, deployed to AWS Lambda + CloudFront via
+the [OpenNext](https://opennext.js.org/aws) adapter (see [deployment.md](./deployment.md)).
 
-`super-web` is the shell repository. It consumes two other repositories as external, versioned dependencies rather than internal workspace packages:
+**This used to be a Webpack Module Federation shell** hosting independently-deployed
+`feature-profile`/`feature-portfolio`/`feature-blog` remotes. That was dropped 2026-09-06:
+none of those feature-module repos exist yet, and OpenNext's Lambda-based deployment doesn't
+pair naturally with a federated multi-remote frontend anyway. If per-feature independent
+deploys become worth the complexity later, that's a deliberate architecture decision to
+revisit — not something to quietly rebuild piecemeal.
 
-- **`component-ui-library`** — published as `@jelly/component-ui-library`, singleton-shared UI components
-- **`sw-core-engine`** — published as `@jelly/sw-core-engine`, singleton-shared pure logic/utilities (no network calls — see [sw-core-engine/README.md](../../sw-core-engine/README.md))
+## Current structure
 
-## Core Concepts
+`profile`, `portfolio`, and `blog` are plain route segments (`src/app/profile/page.tsx`,
+etc.) inside this one app — placeholders today, real pages later. There's no runtime module
+loading, no remote entry points, no shared-dependency singleton config: it's a normal
+Next.js app.
 
-### Shell Application
-The host application that orchestrates and loads feature modules dynamically at runtime.
+```
+src/app/
+├── layout.tsx     # AppProvider (session context) + Nav, wraps every route
+├── page.tsx        # Home
+├── error.tsx        # Root error boundary (Next.js convention, not a hand-rolled one)
+├── profile/page.tsx
+├── portfolio/page.tsx
+└── blog/page.tsx
+```
 
-**Responsibilities:**
-- Provides global navigation and layout
-- Manages routing between feature modules
-- Holds the authenticated user's session/token (obtained from `sw-server`) and shares it via context
-- Shares common dependencies (React, `@jelly/component-ui-library`, `@jelly/sw-core-engine`)
+## External Package Layer
 
-### Feature Modules
-Independent, self-contained applications that run within the shell (`feature-profile`, `feature-portfolio`, `feature-blog`).
-
-**Characteristics:**
-- Can be developed in isolation
-- Independently deployable
-- Own routing and local state
-- Call `sw-server` directly over HTTP for data (auth, projects, posts, files)
-- Use `sw-core-engine` only for local, non-network calculations (formatting, validation, game/calendar logic)
-- Consume `component-ui-library` for UI
-
-### External Package Layer
-Code shared across the shell and every feature module, but versioned and published independently — not part of this monorepo's workspaces.
+Code shared across the ecosystem, versioned and published independently — not part of this
+repo:
 
 | Package | Repo | Purpose |
 |---|---|---|
-| `@jelly/component-ui-library` | `component-ui-library` | UI components, design tokens |
-| `@jelly/sw-core-engine` | `sw-core-engine` | Pure algorithms/utilities — **no API calls** |
+| `@jelly2000/component-ui-library` | `component-ui-library` | UI components, design tokens |
+| `@jelly2000/sw-core-engine` | `sw-core-engine` | Pure algorithms/utilities — **no API calls** |
 
-## Module Federation Architecture
-
-### Webpack Module Federation
-
-Uses Webpack 5's native Module Federation to enable runtime module loading:
-
-```
-Shell Application
-├── Exposes: App shell, navigation
-├── Consumes: Feature modules (remote)
-└── Shared: React, component-ui-library, sw-core-engine
-
-Feature Modules (Remote)
-├── Exposes: Routes, components
-├── Consumes: Shared singleton packages
-└── Independent: Local state, logic, own sw-server API calls
-```
-
-### Shared Dependencies
-
-Prevents duplication by sharing heavy dependencies as npm-published singletons:
-
-```javascript
-// webpack.config.js
-shared: {
-  react: { singleton: true, requiredVersion: '^18.0' },
-  'react-dom': { singleton: true, requiredVersion: '^18.0' },
-  '@jelly/component-ui-library': { singleton: true },
-  '@jelly/sw-core-engine': { singleton: true },
-}
-```
+Neither is added yet. Once they are, they're consumed as ordinary npm dependencies
+(`import { Button } from '@jelly2000/component-ui-library'`) — no singleton-sharing mechanism
+needed since there's no Module Federation runtime.
 
 ## Data Flow
 
 ```
 User Action
     ↓
-Feature Module
+A route/page (e.g. src/app/profile)
     ↓
 HTTP call to sw-server (auth, data, files)
     ↓
 sw-server (AWS Lambda) → DynamoDB / S3 / SES
     ↓
-Response
-    ↓
-Feature Module (update local state)
-    ↓
-UI Re-render
+Response → local state update → re-render
 ```
 
-Pure client-side calculations (e.g. formatting a date, validating a form field, scoring a game) go through `sw-core-engine` directly in the browser — no network round trip.
+Pure client-side calculations (formatting, validation, game/calendar logic) go through
+`sw-core-engine` directly in the browser once it's added — no network round trip.
 
-## Communication Between Modules
+## Session Context
 
-### Event-Based Communication
-Features communicate via a shell-provided event emitter:
+The root layout wraps the app in `AppProvider` (`src/context/AppContext.tsx`), which holds
+the session (`user`, `token`) obtained from `sw-server`'s auth API and exposes it via
+`useAppContext()` to any client component that needs it (see `src/components/SessionStatus.tsx`
+for the pattern — keep the context read in a small client component rather than making whole
+pages client components just to read the session).
 
-```javascript
-// In feature-profile
-import { eventBus } from './shell-context';
-eventBus.emit('user:updated', userData);
+## Rendering & Deployment
 
-// In feature-portfolio
-eventBus.on('user:updated', (data) => {
-  // React to changes
-});
-```
+Every route currently prerenders as fully static content (confirmed via `next build`'s route
+output — all routes show `○ (Static)`), since nothing calls `sw-server` yet. Once
+data-fetching / auth is added, some routes will become dynamic (SSR) — that's exactly what
+the OpenNext Lambda deployment exists for. See [deployment.md](./deployment.md) for the
+full Lambda + CloudFront setup and the CI/CD workflows that build and deploy it.
 
-### Shared Session Context
-The shell holds the authenticated session (JWT from `sw-server`) and exposes it via context:
+## Testing Strategy
 
-```javascript
-// In shell
-export const useAppContext = () => {
-  const [user, setUser] = useState(null);
-  return { user, setUser };
-};
-```
-
-## Development Workflow
-
-### Local Development
-
-All packages run in development mode with hot reload:
-
-```bash
-npm run dev
-```
-
-Each package serves on its own port:
-- Shell: `http://localhost:3000`
-- Feature Profile: `http://localhost:3001`
-- Feature Portfolio: `http://localhost:3002`
-- Feature Blog: `http://localhost:3003`
-- Component UI Library (Storybook): `http://localhost:6006`
-- sw-server (local API): `http://localhost:3500` (Serverless Offline)
-
-### Monorepo Structure
-
-Using npm workspaces for package management **within this repo only** (`packages/shell`, `packages/feature-*`):
-
-```bash
-# Install all dependencies
-npm install
-
-# Run scripts in all workspaces
-npm run build --workspaces
-
-# Run script in specific workspace
-npm run dev --workspace packages/shell
-```
-
-## Deployment Strategy
-
-### Independent Deployment
-
-Each feature module deploys independently to a CDN. The shell deploys to S3 + CloudFront — see [deployment.md](./deployment.md):
-
-```
-CDN Structure:
-├── shell/ (latest version)
-├── feature-profile/ (v1.2.3)
-├── feature-portfolio/ (v2.0.1)
-└── feature-blog/ (v1.0.0)
-```
-
-### Versioning
-
-Semantic versioning per module:
-- **Major**: Breaking API changes
-- **Minor**: New features (backward compatible)
-- **Patch**: Bug fixes
-
-### Health Checks
-
-Before loading a remote module:
-
-```javascript
-// Check if module is healthy
-const isHealthy = async (moduleUrl) => {
-  try {
-    const response = await fetch(`${moduleUrl}/health.json`);
-    return response.ok;
-  } catch {
-    return false;
-  }
-};
-```
-
-## Isolation & Security
-
-### Sandboxing
-
-Each feature module is scoped to prevent naming conflicts:
-
-```javascript
-// Scoped CSS
-.feature-profile { /* Only affects profile module */ }
-
-// Scoped global state
-const profileState = useContext(ProfileContext);
-```
-
-### XSS Prevention
-
-- Sanitize user input before rendering
-- Use React's built-in escaping
-- Content Security Policy headers
-
-## Performance Optimization
-
-### Code Splitting
-
-- Shell: Essential code only (~150KB gzipped)
-- Features: Lazy-loaded on-demand
-- Shared packages: Deduplicated across modules via singleton sharing
-
-### Caching Strategy
-
-```
-Shell: Cache-Control: max-age=3600
-Features: Cache-Control: max-age=31536000 (versioned)
-```
-
-## Monitoring & Debugging
-
-### Error Tracking
-
-```javascript
-// Global error handler
-window.addEventListener('error', (event) => {
-  trackError({
-    module: getCurrentModule(),
-    error: event.error,
-    timestamp: Date.now(),
-  });
-});
-```
-
-### Performance Monitoring
-
-```javascript
-// Track module load time
-performance.mark(`module-load-${moduleName}`);
-// ... load module
-performance.measure(`module-load-${moduleName}`);
-```
-
-## Trade-offs
-
-| Benefit | Trade-off |
-|---------|-----------|
-| Independent deployment | Coordination complexity |
-| Scalability | Increased bundle size |
-| Team autonomy | Shared dependency management |
-| Resilience | Network latency for module loading |
+- **Unit/Component tests** - Vitest + Testing Library (`npm run test`)
+- **Type checking** - `npm run type-check`
+- E2E/Playwright: not set up yet — add when there's enough real UI flow to justify it

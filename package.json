@@ -1,50 +1,44 @@
 {
   "name": "super-web",
   "version": "1.0.0",
-  "description": "Central shell application for Super Web micro frontend ecosystem",
   "private": true,
-  "type": "module",
-  "workspaces": [
-    "packages/shell",
-    "packages/feature-profile",
-    "packages/feature-portfolio",
-    "packages/feature-blog"
-  ],
+  "description": "Shell application for the Super Web ecosystem — Next.js, deployed to AWS Lambda + CloudFront via OpenNext",
   "scripts": {
-    "dev": "npm run dev --workspaces --if-present",
-    "build": "npm run build --workspaces --if-present",
-    "build:lib": "npm run build --workspace packages/shell",
-    "test": "npm run test --workspaces --if-present",
-    "test:ui": "npm run test:ui --workspaces --if-present",
-    "lint": "npm run lint --workspaces --if-present",
-    "clean": "npm run clean --workspaces --if-present && rm -rf node_modules",
-    "type-check": "tsc --noEmit"
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint",
+    "type-check": "tsc --noEmit",
+    "test": "vitest run",
+    "test:ui": "vitest --ui",
+    "opennext:build": "open-next build"
+  },
+  "dependencies": {
+    "@jelly2000/component-ui-library": "file:../component-ui-library",
+    "next": "16.3.4",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.22.0",
-    "@babel/preset-env": "^7.22.0",
-    "@babel/preset-react": "^7.22.0",
-    "@babel/preset-typescript": "^7.22.0",
-    "babel-loader": "^9.1.0",
-    "typescript": "^5.1.0",
-    "webpack": "^5.89.0",
-    "webpack-cli": "^5.1.0",
-    "webpack-dev-server": "^4.15.0"
+    "@opennextjs/aws": "^4.1.4",
+    "@testing-library/jest-dom": "^6.4.0",
+    "@testing-library/react": "^16.3.0",
+    "@types/node": "^22.10.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "eslint": "^9.39.0",
+    "eslint-config-next": "16.3.4",
+    "jsdom": "^24.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^1.6.0"
   },
   "engines": {
-    "node": ">=18.0.0",
-    "npm": ">=8.0.0"
+    "node": ">=20.9.0"
   },
-  "keywords": [
-    "micro-frontend",
-    "module-federation",
-    "shell-application",
-    "react"
-  ],
   "author": "Jelly",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jelly/super-web"
+    "url": "https://github.com/Jelly2000/super-web"
   }
 }

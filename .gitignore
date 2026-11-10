@@ -10,6 +10,7 @@ dist/
 build/
 .next/
 out/
+.open-next/
 
 # Development
 .env.local
@@ -28,6 +29,9 @@ out/
 # Testing
 coverage/
 .nyc_output/
+
+# TypeScript
+*.tsbuildinfo
 
 # Webpack
 .webpack/

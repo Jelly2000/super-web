@@ -1,4 +1,6 @@
-import React, { createContext, useMemo, useState } from 'react';
+'use client';
+
+import { createContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
 export interface AppUser {

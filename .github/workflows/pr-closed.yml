@@ -1,57 +1,32 @@
 name: PR Cleanup
 
-# Runs whenever a PR is closed (merged or abandoned) and tears down its
-# preview deployment: deletes s3://$S3_BUCKET_NAME/pr/<number>/ and
-# invalidates that path in CloudFront. Complements pr-release.yml.
-#
-# Required repo variables/secrets: same as pr-release.yml — see docs/deployment.md.
+# The preview environment is a single SHARED slot (see pr-release.yml), so
+# there's no per-PR infrastructure to tear down here. This just marks the
+# PR's preview comment stale, since the shared link may now reflect a
+# different, more-recently-deployed PR.
 
 on:
   pull_request:
     branches: [master]
     types: [closed]
 
-# Same group as pr-release.yml so a close event queues behind an in-flight
-# release for the same PR instead of racing it.
-concurrency:
-  group: pr-preview-${{ github.event.pull_request.number }}
-  cancel-in-progress: false
-
 permissions:
-  id-token: write
-  contents: read
   pull-requests: write
 
-env:
-  AWS_REGION: ${{ vars.AWS_REGION }}
-  S3_BUCKET: ${{ vars.S3_BUCKET_NAME }}
-  CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
-  PR_PREFIX: pr/${{ github.event.pull_request.number }}
-
 jobs:
-  teardown:
+  note-closed:
     runs-on: ubuntu-latest
     steps:
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Delete preview files from S3
-        run: aws s3 rm "s3://${S3_BUCKET}/${PR_PREFIX}" --recursive
-
-      - name: Invalidate CloudFront cache for this PR
-        run: |
-          aws cloudfront create-invalidation \
-            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
-            --paths "/${PR_PREFIX}/*"
-
-      - name: Update PR comment
-        uses: actions/github-script@v7
+      - uses: actions/github-script@v7
         with:
           script: |
             const marker = '<!-- pr-preview-comment -->';
-            const body = `${marker}\n### Preview removed\n\nThis PR's preview deployment has been torn down.`;
+            const body = [
+              marker,
+              '### PR closed',
+              '',
+              "This PR is closed. The shared preview environment now reflects whichever PR deployed to it most recently, which may no longer be this one.",
+            ].join('\n');
 
             const { data: comments } = await github.rest.issues.listComments({
               owner: context.repo.owner,
